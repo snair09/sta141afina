@@ -1,0 +1,329 @@
+---
+title: "STA 141A Final project"
+output:
+  html_document:
+    df_print: paged
+---
+
+#### Sandeep Nair, 917353866
+
+## Introduction
+
+COVID 19 in an ongoing pandemic which was first identified in December 2019. In its early stages, epidemiology experts emphasized the importance of collecting data on policy decisions. As a result, large, robust data sets are made available on the World heath Organisations Website.
+
+### Question of Interest
+
+In this report, I aim to analyse the interaction and main group effects of - (1)the effect of different mutation and (2)the effect of the human development index on the daily fatality rate.
+
+### Motivation and Problem set-up
+
+While COVID-19 had detrimental effects on almost everybody globally, some groups were effected more adversely relative to others.A example which highlights this is the difference in death rates, vaccination rates and quality of healthcare between the developed and developing world. I used the HDI index to categories all countries into four groups.
+
+In addition, there were many stages of the pandemic characterized by different mutations of the virus. I have heard a lot of contrasting opinions about the difference in transmissiblity and fatality among the popular strains. I wanted to use real world data to check the validity of information I came across. I identifed 3 major strains: strain1(refers to collection of all strains before the delta strain), Delta and Omicron
+
+### Possible Hypothesis
+
+From following mainstream media source over the course of the pandemic, I am confident that there are main group effects for both factors of interest. This report quantifies the difference between development groups using pairwise comparisons and check for the existence of interaction
+
+## Background
+
+### Datasets
+
+The data used in this report was collected from different sources online.
+
+| Source data  | Important variables                                                        | Link to source          |
+|--------------|----------------------------------------------------------------------------|-------------------------|
+| OWID dataset |                                                                            |                         |
+| WHO dataset  | Date, new cases , new deaths                                               |                         |
+| HDI data     | Human development index from 2017                                          | <https://hdr.undp.org/> |
+| Convert data | 2 letter and 3 letter ISO codes for countries. Required to join datatables |                         |
+
+### WHO data
+
+The WHO daily aggregate data is being collected since 31 January 2019. It collects all its data through official communications under the International Health Regulations and monitoring official ministries of health websites. The counts contain only the laboratory confirmed deaths and cases. Case detection, testing, reporting and lag times differ between countries. WHO claims that their methods overestimate the true case and death counts in an effort to correct discrepancies.
+
+For this report the main response variable is the daily death rate defined as new_cases/ new_deaths.
+
+### HDI categories
+
+The Human development Index is a measure which four metrics to measure development:
+
+-   Life expectancy
+
+-   Expected years of schooling
+
+-   Average years of schooling
+
+-   Gross national income
+
+The index is geometric mean of the above metrics.
+
+The classification of countries is listed below:
+
+1.  Very high - index values above 0.8
+
+2.  High - index values between 0.7 and 0.79999
+
+3.  Medium - index values between 0.55 and 0.699
+
+4.  Low - index values below 0.549
+
+*Map depicting Human development indices.*
+
+![]https://imgur.com/xMyhCkD
+
+### COVID-19 Strain Categories
+
+There were 3 main variants of concern which I heard about over the course of the pandemic. While there are more than 3 variants identified, my analysis will only focus on the strains before delta, collectively refered to as "strain1", the delta strain and omicron strain. I split up all dates in the dataset according to the most frequent strain at the time. Strain frequencies were obtained from a chart on nextstrain.com.
+
+*Graph showing Clade/Variant frequencies*
+
+![]https://imgur.com/3TzrJ18
+
+From the graph, the dates were categorized into three groups:
+
+1.  "Strain1" - until 2021-06-08
+
+2.  "Delta" - from 2021-07-08 to 2021-12-26
+
+3.  "Omicron" - from 2021-12-27 on wards
+
+## Descriptive analysis
+
+### Pre-analysis
+
+I have included well commented code below to outline my data mining process. The three tables were joined and df_aov is the final table.
+
+```{r warning=FALSE}
+library(tidyverse)
+covid_data = read_csv("WHO-COVID-19-global-data.csv", show_col_types = FALSE)
+HDI_data = read_csv("human-development-index.csv",show_col_types = FALSE)
+convert_data = read_csv("countries_codes_and_coordinates.csv",show_col_types = FALSE)
+```
+
+```{r}
+# converting 3letter iso code to 2 letter
+convert_data = convert_data[,c(2,3)] # choosing 2-letter and 3-letter codes only
+colnames(convert_data) = c("two_code","three_code")
+```
+
+```{r}
+
+# joining HDI data and convert data
+HDI_data = inner_join(HDI_data, convert_data, by= c("Code"="three_code"))
+colnames(HDI_data)[4] = "Index"
+
+# categorizing HDI data
+HDI_data= HDI_data %>% mutate(cat_hdi = cut(Index, breaks = c(0,0.55,0.7,0.8,1),right = FALSE, labels =c("low", "medium","high", "very_high"))) #using cuts() to ease categorization and avoid for loops
+
+HDI_data = HDI_data %>% filter(Year==2017) # choosing most recent HDI data.
+HDI_data = distinct(HDI_data, two_code, .keep_all = TRUE) # some countries were repeated.
+
+
+```
+
+```{r}
+# used OWID data for exploration
+owid = read_csv("owid-covid-data (1).csv", show_col_types = FALSE)
+owid1 = dplyr::select(owid, c("date","iso_code","new_cases_per_million" ,"new_deaths_per_million","icu_patients_per_million","total_tests_per_thousand","people_fully_vaccinated_per_hundred","reproduction_rate")) 
+
+# this was a huge dataset, only chose the columns which seemed intresting to analyse.
+```
+
+```{r}
+# joining two maind databases
+inner_joined = inner_join(covid_data, HDI_data, by= c("Country_code" = "two_code")) # used inner_join since both datatables had equal number of observations
+
+joined1 = left_join(inner_joined, owid1, by= c("Date_reported"="date", "Code"="iso_code")) # used left_join to keep a all data in the WHO datatable
+```
+
+```{r}
+## for loop to categorize dates. This loops takes alot of time.
+cat_dat = c()
+for (i in c(1:length(joined1$Date_reported))){
+  if (joined1$Date_reported[i] < "2021-06-08"){
+    cat_dat = append(cat_dat,"strain1")}
+  else if (joined1$Date_reported[i] >= "2021-06-08" & joined1$Date_reported[i] <"2021-12-26"){
+    cat_dat = append(cat_dat, "Delta")}
+  else {
+    cat_dat= append(cat_dat, "Omicron")}
+}
+
+joined1$cat_dat = cat_dat # append categories to main table.
+```
+
+```{r}
+# joined one cointained alot of columns which I used for exploratory analysis but didnt make to the final report. DF-aov contains all columns relevant to this analysis.
+df_aov = dplyr::select(joined1,c("cat_hdi","cat_dat","New_cases","New_deaths"))
+
+df_aov = mutate(df_aov, new_fatality = (New_deaths/New_cases))
+```
+
+### Descriptive of important variables
+
+#### Fatality rate
+
+```{r}
+summary(df_aov$new_fatality)
+boxplot(df_aov$new_fatality)
+```
+
+The boxplot and summary() results show us that the new_fatality variables are not normal. There are many outlier. The IQR region is represented by a line.There are many INF and NAN values. The data needs to be transformed before further analysis. I chose to remove datapoint above IQR\*2 regions. The consequence of such filtering is that the outliers will be ignored completely. I believe this is a required trade-off since most model's thought in previous course work require normally distributed data. Additionally, there is alot of outliers in the data because data collection began well before the exponential growth of the virus. The Large amount of 0's in the dataset pull the mean lower. The filter function is used to filter all rates under 0.04 which is well above the 1.5Iqr(0.03)
+
+```{r}
+df_aov1 = filter(df_aov, new_fatality>0 & new_fatality <0.04)
+df_aov2 = na.omit(df_aov1) # na omit mostly removes values before the virus spread quickly.
+```
+
+```{r}
+summary(df_aov2$new_fatality)
+boxplot(df_aov2$new_fatality)
+```
+
+We can see that this doe
+
+```{r}
+head(df_aov2)
+```
+
+After filtering the rates, the number of outliers decreases. The quantile values have decreased slightly.
+
+#### Categories count
+
+```{r}
+ggplot(df_aov2, aes(x=cat_hdi))+geom_bar()+ labs(title = "HDI categories")
+```
+
+The countries are not split up evenly. We need to keep this is mind during analysis. Very high and high categories have more data points after filtering. Might be becuase these countries report higher quality data than others.
+
+```{r}
+ggplot(df_aov2, aes(x=cat_dat))+geom_bar()+ labs(title = "HDI categories")
+```
+
+As expected, strain 1 has highest count since its been around the longest. Delta and omicron were comparatively shorter in duration.
+
+### Univariate plots
+
+```{r}
+library(ggpubr)
+ggboxplot(df_aov2, x="cat_hdi", y="new_fatality", color = "cat_hdi",palette = c("#00AFBB","#E7B800","#FC4E07","#6982af"))
+```
+
+We can see a clear trend showing that fatality decreases and Index value/category increases
+
+```{r}
+ggboxplot(df_aov2, x="cat_dat", y="new_fatality", color = "cat_dat",palette = c("#00AFBB","#E7B800","#FC4E07"))
+```
+
+From this plot, omicron seems to have a much lower mean fatality rate than the other 2 strains.
+
+### Multivariate plots
+
+```{r}
+ggboxplot(df_aov2, x="cat_hdi", y="new_fatality", color = "cat_dat",palette = c("#00AFBB","#E7B800","#FC4E07","#6982af"))
+```
+
+In addition to the points mentioned before, the graph shows that higher human indexes tend to show a higher difference between the fatality rates of omicron vs other strains. For the low countries, mean omicron fatality is very close to means of other strains. IN other groups, there is a noticeable drop in fatality rates.
+
+## Infernetial Analysis.
+
+```{r}
+#mutating transfromation values to make model selection easier.
+df_aov3 = mutate(df_aov2, log_mortality = log10(new_fatality))
+df_aov3 = mutate(df_aov3, sqrt_mortality = sqrt(new_fatality))
+df_aov3 = mutate(df_aov3, sq_mortatlity = new_fatality^2)
+df_aov3 =mutate(df_aov3, factor = factor(cat_dat))
+
+```
+
+Since we know from the graphs above that both HDI and strain type have effects on fatality rates, we can use a two factor anova model to carry our inferential analysis. The model equation is $Y_{ijk} = \mu_{..} + \alpha_{i} + \beta_{j} +\alpha\beta_{ij}+ \epsilon_{ijk}$
+
+* $\alpha_{i}$ refers to class type main effects.The main effects are the differences between factor level means and the overall sample mean. The index i denotes different strain groups
+
+* $\beta{i}$ denotes HDI index level. The index j represent group.
+
+* $\alpha\beta_{ij}$ denotes the interaction effects between both factors
+
+* $\mu_{..}$ is the sample mean
+
+* The index k denotes each experimental unit which is teacher id in this analysis
+
+* $Y_{ijk}$ is the observed outcome - math scaled score
+
+* $\epsilon_{ijk}$ denote random errors.
+
+Assumption of this model are:
+
+* predictor and outcome variables are lineraly dependent
+
+* The random errors, $\epsilon_{ijk}$ are normal and identically distributed
+
+* Observations between and within each group are independent
+
+* variance among groups must be equal
+
+The Null hypothesis of this anova test is that the group means are equal, ie not factor A or B main effects and interaction terms are not significant.
+
+```{r}
+model = aov(log_mortality~cat_hdi*factor, data = df_aov3)
+summary(model)
+```
+The main group effects and interaction terms are all statistically significant (P=2e-16). This means we reject the null hypothesis and accept the alternate that both main effects are significant and interaction terms exist.
+
+Constructing Tukeys intevals and glht() on our model we get
+```{r warning=FALSE}
+library(multcomp)
+plot(TukeyHSD(model, which = "cat_hdi"))
+
+summary(glht(model, linfct = mcp(cat_hdi = "Tukey")))
+
+```
+
+We can see that all pairwise comparisons are significant accoriding to the ouput. we see that Very high < high< medium< low in terms of fatality rates. Looking at the Tukey graph, the difference between very high and other groups were higher in magnitude than other pairwise comparisions. 
+
+```{r}
+plot(TukeyHSD(model, which = "factor"))
+summary(glht(model, linfct = mcp(factor = "Tukey")))
+```
+
+According to the outputs, Omicrons fatality rate was significantly less that delta's and strain1's. There was no significant difference between strain 1 and delta.
+
+## Sensitivity analysis.
+
+I chose the log transformation since it was the most normal transformation and had relatively homogeneous variance distribution.
+```{r}
+plot(model)
+
+```
+
+The residual vs fitted graph shows that there is a linear relationship between the predictor's and outcome variable. The fitted line is horizontal. This check the linearity assumption for ANOVA
+
+The normal Q-Q plot shows that the residuals are normally distributed except for a few outlines. This means that we do not have to do any transformation. This plot checks the normal distribution assumption
+
+Scale-location graph check the equal variance assumptions. Since the fitted line is slightly skewed, we can not conclude that groups have equal variance. 
+
+Residual vs leverage helps us influential cases an outlines. There is no red dashed line visible in the plot which means no point lie outside the cooks distance.
+
+## Conclusion
+
+In closing, there are main effects and interaction effects between HDI group and strain type. The interaction effects were unexpected. This is becuase COVID related fatality rate is dependent on a variety of factors not considered in this analysis. Important metrics like vaccination rates, diets, percentage of population above 65 etc were not included. 
+My first model was a linear regression model to predict the number of ICU beds required 14 days later. However, I quickly found out that despite using 10+ variable and all their interaction effects(to 3rd degree) the R^2 value was around 0.3.
+
+While anova alone doesn't add to previous knowledge, the pairwise comparison and multivariate plots revealed differences between groups.
+
+This analysis shows how important it is that everyone in the world gets vaccinated as soon as possible. Leaving poorer countries unvaccinated is a risk for everyone as a new mutant may evolve and result in more lockdowns.
+
+### Caveats of the analysis.
+Data obtained is not entirely accurate since different agencies and ministries may have different standards, time frames and so on. Furthermore, the classification into 3 dominant strains shouldn't be taken at face value. The dominant strains were different in different parts of the world at the same time period. 
+
+## Bibliography 
+
+1.   https://www.who.int/data/collections
+2.   https://ourworldindata.org/
+3.   http://www.sthda.com/english/wiki/two-way-anova-test-in-r
+
+```{r}
+sessionInfo()
+```
+
+
